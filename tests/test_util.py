@@ -2,7 +2,10 @@ import pickle
 import unittest
 import numpy as np
 import numpy.testing as npt
-from sigpy import util, backend
+from sigpy import util, backend, config
+
+if config.cupy_enabled:
+    import cupy as cp
 
 if __name__ == '__main__':
     unittest.main()
@@ -130,3 +133,32 @@ class TestUtil(unittest.TestCase):
 
         npt.assert_allclose(
             sigma**2, util.monte_carlo_sure(f, y, sigma), atol=1e-3)
+
+    def test_axpy(self):
+        xps = [np]
+        if config.cupy_enabled:
+            xps.append(cp)
+
+        for xp in xps:
+            for dtype in [np.float32, np.complex64]:
+                with self.subTest(xp=xp, dtype=dtype):
+                    y = xp.ones(3)
+                    a = 0.1
+                    x = xp.array([0.1, -0.2, 0.3])
+                    util.axpy(y, a, x)
+                    xp.testing.assert_allclose(y, [1.01, 0.98, 1.03])
+
+    def test_xpay(self):
+        xps = [np]
+        if config.cupy_enabled:
+            xps.append(cp)
+
+        for xp in xps:
+            for dtype in [np.float32, np.complex64]:
+                with self.subTest(xp=xp, dtype=dtype):
+                    y = xp.ones(3)
+                    a = 0.1
+                    x = xp.array([0.1, -0.2, 0.3])
+                    util.xpay(y, a, x)
+                    xp.testing.assert_allclose(y, [0.2, -0.1, 0.4])
+                    
