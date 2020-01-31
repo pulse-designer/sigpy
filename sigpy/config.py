@@ -15,9 +15,6 @@ else:
     cudnn_enabled = False
     nccl_enabled = False
 
-numba_cuda_enabled = util.find_spec("numba.cuda") is not None
-numba_cuda_threads = 256
-
 mpi4py_enabled = util.find_spec("mpi4py") is not None
 
 pytorch_enabled = util.find_spec("torch") is not None
