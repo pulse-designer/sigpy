@@ -4,7 +4,7 @@ and implements commonly used methods, such as gradient methods,
 Newton's method, and the augmented Lagrangian method.
 """
 import numpy as np
-from sigpy import backend, util
+from sigpy import backend
 
 
 class Alg(object):
@@ -100,7 +100,7 @@ class PowerMethod(Alg):
             else:
                 self.max_eig = self.norm_func(y)
 
-            backend.copyto(self.x, y / self.max_eig)
+            self.x[:] = y / self.max_eig
 
     def _done(self):
         return self.iter >= self.max_iter
@@ -180,18 +180,17 @@ class GradientMethod(Alg):
             x_old = self.x.copy()
 
             if self.accelerate:
-                backend.copyto(self.x, self.z)
+                self.x[:] = self.z
 
             # Perform update
-            util.axpy(self.x, -self.alpha, self.gradf(self.x))
+            self.x -= self.alpha * self.gradf(self.x)
             if self.proxg is not None:
-                backend.copyto(self.x, self.proxg(self.alpha, self.x))
+                self.x[:] = self.proxg(self.alpha, self.x)
 
             if self.accelerate:
                 t_old = self.t
                 self.t = (1 + (1 + 4 * t_old**2)**0.5) / 2
-                backend.copyto(self.z, self.x +
-                               ((t_old - 1) / self.t) * (self.x - x_old))
+                self.z[:] = self.x + (t_old - 1) / self.t * (self.x - x_old)
 
             self.resid = xp.linalg.norm(self.x - x_old).item() / self.alpha
 
@@ -255,9 +254,9 @@ class ConjugateGradient(Alg):
                 return
 
             self.alpha = self.rzold / pAp
-            util.axpy(self.x, self.alpha, self.p)
+            self.x += self.alpha * self.p
             if self.iter < self.max_iter - 1:
-                util.axpy(self.r, -self.alpha, Ap)
+                self.r -= self.alpha * Ap
                 if self.P is not None:
                     z = self.P(self.r)
                 else:
@@ -265,7 +264,7 @@ class ConjugateGradient(Alg):
 
                 rznew = xp.real(xp.vdot(self.r, z))
                 beta = rznew / self.rzold
-                util.xpay(self.p, beta, z)
+                self.p[:] = z + beta * self.p
                 self.rzold = rznew
 
             self.resid = self.rzold.item()**0.5
@@ -350,14 +349,14 @@ class PrimalDualHybridGradient(Alg):
 
     def _update(self):
         # Update dual.
-        util.axpy(self.u, self.sigma, self.A(self.x_ext))
-        backend.copyto(self.u, self.proxfc(self.sigma, self.u))
+        self.u += self.sigma * self.A(self.x_ext)
+        self.u[:] = self.proxfc(self.sigma, self.u)
 
         # Update primal.
         with self.x_device:
             x_old = self.x.copy()
-            util.axpy(self.x, -self.tau, self.AH(self.u))
-            backend.copyto(self.x, self.proxg(self.tau, self.x))
+            self.x -= self.tau * self.AH(self.u)
+            self.x[:] = self.proxg(self.tau, self.x)
 
         # Update step-size if neccessary.
         if self.gamma_primal > 0 and self.gamma_dual == 0:
@@ -386,7 +385,7 @@ class PrimalDualHybridGradient(Alg):
             xp = self.x_device.xp
             x_diff = self.x - x_old
             self.resid = xp.linalg.norm(x_diff / self.tau**0.5).item()
-            backend.copyto(self.x_ext, self.x + theta * x_diff)
+            self.x_ext[:] = self.x + theta * x_diff
 
     def _done(self):
         return (self.iter >= self.max_iter) or (self.resid <= self.tol)
@@ -461,11 +460,11 @@ class AugmentedLagrangianMethod(Alg):
             device = backend.get_device(self.u)
             xp = device.xp
             with device:
-                util.axpy(self.u, self.mu, self.g(self.x))
-                backend.copyto(self.u, xp.clip(self.u, 0, np.infty))
+                self.u += self.mu * self.g(self.x)
+                self.u[:] = xp.clip(self.u, 0, np.infty)
 
         if self.h is not None:
-            util.axpy(self.v, self.mu, self.h(self.x))
+            self.v += self.mu * self.h(self.x)
 
 
 class ADMM(Alg):
@@ -567,7 +566,7 @@ class NewtonsMethod(Alg):
                     alpha *= self.beta
                     x_new = self.x + alpha * p
 
-            backend.copyto(self.x, x_new)
+            self.x[:] = x_new
             self.residual = self.lamda2**0.5
 
     def _done(self):

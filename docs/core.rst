@@ -129,8 +129,6 @@ Utility Functions
    sigpy.triang
    sigpy.hanning
    sigpy.monte_carlo_sure
-   sigpy.axpy
-   sigpy.xpay
 
 Wavelet Functions
 -----------------

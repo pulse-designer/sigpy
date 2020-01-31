@@ -266,7 +266,7 @@ class LinearLeastSquares(App):
         if self.lamda != 0:
             AHA += self.lamda * I
             if self.z is not None:
-                util.axpy(AHy, self.lamda, self.z)
+                AHy += self.lamda * self.z
 
         self.alg = ConjugateGradient(
             AHA, AHy, self.x, P=self.P, max_iter=self.max_iter)
@@ -281,9 +281,9 @@ class LinearLeastSquares(App):
                 gradf_x = self.A.H(r)
                 if self.lamda != 0:
                     if self.z is None:
-                        util.axpy(gradf_x, self.lamda, x)
+                        gradf_x += self.lamda * x
                     else:
-                        util.axpy(gradf_x, self.lamda, x - self.z)
+                        gradf_x += self.lamda * (x - self.z)
 
                 return gradf_x
 
@@ -422,12 +422,12 @@ class LinearLeastSquares(App):
 
         def minL_v():
             if self.G is None:
-                backend.copyto(v, self.x + u)
+                v[:] = self.x + u
             else:
-                backend.copyto(v, self.G(self.x) + u)
+                v[:] = self.G(self.x) + u
 
             if self.proxg is not None:
-                backend.copyto(v, self.proxg(1 / self.rho, v))
+                v[:] = self.proxg(1 / self.rho, v)
 
         I_v = linop.Identity(v.shape)
         if self.G is None:

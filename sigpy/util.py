@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Utility functions.
 """
+import math
 import numpy as np
 import numba as nb
 
@@ -9,7 +10,7 @@ from sigpy import backend, config
 
 __all__ = ['prod', 'vec', 'split', 'rss', 'resize',
            'flip', 'circshift', 'downsample', 'upsample', 'dirac', 'randn',
-           'triang', 'hanning', 'monte_carlo_sure', 'axpy', 'xpay', 'leja']
+           'triang', 'hanning', 'monte_carlo_sure', 'leja']
 
 
 def _normalize_axes(axes, ndim):
@@ -422,66 +423,3 @@ def leja(x):
     x_out = a[n, :]
 
     return x_out
-
-
-def axpy(y, a, x):
-    """Compute y = a * x + y.
-
-    Args:
-        y (array): Output array.
-        a (scalar): Input scalar.
-        x (array): Input array.
-
-    """
-    xp = backend.get_array_module(y)
-
-    if xp == np:
-        _axpy(y, a, x, out=y)
-    else:
-        _axpy_cuda(a, x, y)
-
-
-def xpay(y, a, x):
-    """Compute y = x + a * y.
-
-    Args:
-        y (array): Output array.
-        a (scalar): Input scalar.
-        x (array): Input array.
-    """
-    xp = backend.get_array_module(y)
-
-    if xp == np:
-        _xpay(y, a, x, out=y)
-    else:
-        _xpay_cuda(a, x, y)
-
-
-@nb.vectorize(nopython=True, cache=True)  # pragma: no cover
-def _axpy(y, a, x):
-    return a * x + y
-
-
-@nb.vectorize(nopython=True, cache=True)  # pragma: no cover
-def _xpay(y, a, x):
-    return x + a * y
-
-
-if config.cupy_enabled:  # pragma: no cover
-    import cupy as cp
-
-    _axpy_cuda = cp.ElementwiseKernel(
-        'S a, T x',
-        'T y',
-        """
-        y += (T) a * x;
-        """,
-        name='axpy')
-
-    _xpay_cuda = cp.ElementwiseKernel(
-        'S a, T x',
-        'T y',
-        """
-        y = x + (T) a * y;
-        """,
-        name='axpy')
