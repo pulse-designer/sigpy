@@ -27,10 +27,14 @@ def soft_thresh(lamda, input):
 
     """
     xp = backend.get_array_module(input)
-    if xp == np:
-        return _soft_thresh(lamda, input)
-    else:  # pragma: no cover
-        return _soft_thresh_cuda(lamda, input)
+    abs_input = xp.abs(input)
+    output = input.copy()
+    output[abs_input != 0] /= abs_input[abs_input != 0]
+    mag = abs_input - lamda
+    mag = (xp.abs(mag) + mag) / 2
+    output *= mag
+
+    return output
 
 
 def hard_thresh(lamda, input):
@@ -45,10 +49,10 @@ def hard_thresh(lamda, input):
 
     """
     xp = backend.get_array_module(input)
-    if xp == np:
-        return _hard_thresh(lamda, input)
-    else:  # pragma: no cover
-        return _hard_thresh_cuda(lamda, input)
+    abs_input = xp.abs(input)
+    output = input.copy()
+    output[abs_input <= lamda] = 0
+    return output
 
 
 def l1_proj(eps, input):
@@ -99,59 +103,3 @@ def l2_proj(eps, input, axes=None):
     output = mask * input + (1 - mask) * (eps * input / (norm + mask))
 
     return output
-
-
-@nb.vectorize  # pragma: no cover
-def _soft_thresh(lamda, input):
-    abs_input = abs(input)
-    if (abs_input == 0):
-        sign = 0
-    else:
-        sign = input / abs_input
-
-    mag = abs_input - lamda
-    mag = (abs(mag) + mag) / 2
-
-    return mag * sign
-
-
-@nb.vectorize  # pragma: no cover
-def _hard_thresh(lamda, input):
-    abs_input = abs(input)
-    if abs_input > lamda:
-        return input
-    else:
-        return 0
-
-
-if config.cupy_enabled:  # pragma: no cover
-    import cupy as cp
-
-    _soft_thresh_cuda = cp.ElementwiseKernel(
-        'S lamda, T input',
-        'T output',
-        """
-        S abs_input = abs(input);
-        T sign;
-        if (abs_input == 0)
-            sign = 0;
-        else
-            sign = input / (T) abs_input;
-        S mag = abs_input - lamda;
-        mag = (abs(mag) + mag) / 2.;
-
-        output = (T) mag * sign;
-        """,
-        name='soft_thresh')
-
-    _hard_thresh_cuda = cp.ElementwiseKernel(
-        'S lamda, T input',
-        'T output',
-        """
-        S abs_input = abs(input);
-        if (abs_input > lamda)
-            output = input;
-        else
-            output = 0;
-        """,
-        name='hard_thresh')

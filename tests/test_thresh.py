@@ -47,7 +47,7 @@ class TestThresh(unittest.TestCase):
             cp.testing.assert_allclose(thresh.soft_thresh(lamda, x), y)
 
         def test_hard_thresh_cuda(self):
-            x = cp.array([-2, -1.5, -1, 0.5, 0, 0.5, 1, 1.5, 2])
+            x = cp.array([-2, -1.5, -0.9, 0.5, 0, 0.5, 0.9, 1.5, 2])
             y = cp.array([-2, -1.5, 0, 0, 0, 0, 0, 1.5, 2])
             lamda = cp.array([1.0])
 
