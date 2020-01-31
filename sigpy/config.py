@@ -15,6 +15,14 @@ else:
     cudnn_enabled = False
     nccl_enabled = False
 
+numba_cuda_threads = 256
+try:
+    import numba.cuda
+    a = numba.cuda.device_array([1])
+    numba_cuda_enabled = False
+except Exception:
+    numba_cuda_enabled = False
+
 mpi4py_enabled = util.find_spec("mpi4py") is not None
 
 pytorch_enabled = util.find_spec("torch") is not None
