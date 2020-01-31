@@ -1,11 +1,9 @@
 # -*- coding: utf-8 -*-
 """Utility functions.
 """
-import math
 import numpy as np
-import numba as nb
 
-from sigpy import backend, config
+from sigpy import backend
 
 
 __all__ = ['prod', 'vec', 'split', 'rss', 'resize',

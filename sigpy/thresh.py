@@ -1,10 +1,7 @@
 # -*- coding: utf-8 -*-
 """Thresholding functions.
 """
-import numpy as np
-import numba as nb
-
-from sigpy import backend, config, util
+from sigpy import backend, util
 
 
 __all__ = ['soft_thresh', 'hard_thresh', 'l1_proj', 'l2_proj']
