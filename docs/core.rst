@@ -69,8 +69,8 @@ Interpolation Functions
    :toctree: generated
    :nosignatures:
 
-   sigpy.linear_kernel
-   sigpy.get_kaiser_bessel_kernel
+   sigpy.LinearKernel
+   sigpy.KaiserBesselKernel
    sigpy.interpolate
    sigpy.gridding
 

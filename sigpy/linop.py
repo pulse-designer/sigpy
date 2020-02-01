@@ -965,7 +965,7 @@ class Interpolate(Linop):
 
     """
 
-    def __init__(self, ishape, coord, width=2, kernel=interp.linear_kernel):
+    def __init__(self, ishape, coord, width=2, kernel=interp.LinearKernel()):
         ndim = coord.shape[-1]
         oshape = list(ishape[:-ndim]) + list(coord.shape[:-1])
 
@@ -999,7 +999,7 @@ class Gridding(Linop):
 
     """
 
-    def __init__(self, oshape, coord, width=2, kernel=interp.linear_kernel):
+    def __init__(self, oshape, coord, width=2, kernel=interp.LinearKernel()):
         ndim = coord.shape[-1]
         ishape = list(oshape[:-ndim]) + list(coord.shape[:-1])
 

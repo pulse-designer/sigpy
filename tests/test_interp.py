@@ -14,13 +14,14 @@ class TestInterp(unittest.TestCase):
     def test_linear_kernel(self):
         x = [-2, -1, -0.5, -0.1, 0, 0.1, 0.5, 1, 2]
         y = [0, 0, 0.5, 0.9, 1, 0.9, 0.5, 0, 0]
+        kernel = interp.LinearKernel().func
         for i in range(len(x)):
-            assert y[i] == interp.linear_kernel(x[i])
+            assert y[i] == kernel(x[i])
 
     def test_get_kaiser_bessel_kernel(self):
         x = [-2, -1, -0.5, -0.1, 0, 0.1, 0.5, 1, 2]
         for beta in range(10):
-            kernel = interp.get_kaiser_bessel_kernel(beta)
+            kernel = interp.KaiserBesselKernel(beta).func
             for i in range(len(x)):
                 if abs(x[i]) > 1:
                     np.testing.assert_allclose(0, kernel(x[i]))

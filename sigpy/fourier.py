@@ -124,7 +124,7 @@ def nufft(input, coord, oversamp=1.25, width=4):
 
     # Interpolate
     coord = _scale_coord(coord, input.shape, oversamp)
-    kernel = interp.get_kaiser_bessel_kernel(beta)
+    kernel = interp.KaiserBesselKernel(beta)
     output = interp.interpolate(output, coord, width=width, kernel=kernel)
     output /= width**ndim
 
@@ -185,7 +185,7 @@ def nufft_adjoint(input, coord, oshape=None, oversamp=1.25, width=4):
 
     # Gridding
     coord = _scale_coord(coord, oshape, oversamp)
-    kernel = interp.get_kaiser_bessel_kernel(beta)
+    kernel = interp.KaiserBesselKernel(beta)
     output = interp.gridding(input, os_shape, coord,
                              width=width, kernel=kernel)
     output /= width**ndim
