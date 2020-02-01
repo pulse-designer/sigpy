@@ -1,5 +1,4 @@
 import unittest
-import pickle
 import numpy as np
 import numpy.testing as npt
 from sigpy import backend, linop, util, config
@@ -54,10 +53,6 @@ class TestLinop(unittest.TestCase):
             xp.testing.assert_allclose(lhs, rhs,
                                        atol=1e-5, rtol=1e-5)
 
-    def check_linop_pickleable(self, A):
-        with self.subTest(A=A):
-            assert A.__repr__() == pickle.loads(pickle.dumps(A)).__repr__()
-
     def test_Identity(self):
         shape = [5]
         A = linop.Identity(shape)
@@ -67,7 +62,6 @@ class TestLinop(unittest.TestCase):
         self.check_linop_linear(A)
         self.check_linop_adjoint(A)
         self.check_linop_unitary(A)
-        self.check_linop_pickleable(A)
 
     def test_Conj(self):
         shape = [5]
@@ -78,7 +72,6 @@ class TestLinop(unittest.TestCase):
         npt.assert_allclose(A(x), x)
         self.check_linop_linear(A)
         self.check_linop_adjoint(A)
-        self.check_linop_pickleable(A)
 
     def test_Add(self):
         shape = [5]
@@ -89,7 +82,6 @@ class TestLinop(unittest.TestCase):
         npt.assert_allclose(A(x), 2 * x)
         self.check_linop_linear(A)
         self.check_linop_adjoint(A)
-        self.check_linop_pickleable(A)
 
     def test_Compose(self):
         shape = [5]
@@ -100,7 +92,6 @@ class TestLinop(unittest.TestCase):
         npt.assert_allclose(A(x), x)
         self.check_linop_linear(A)
         self.check_linop_adjoint(A)
-        self.check_linop_pickleable(A)
 
     def test_Hstack(self):
         shape = [5]
@@ -113,7 +104,6 @@ class TestLinop(unittest.TestCase):
         npt.assert_allclose(A(x), x1 + x2)
         self.check_linop_linear(A)
         self.check_linop_adjoint(A)
-        self.check_linop_pickleable(A)
 
         shape = [5, 3]
         I = linop.Identity(shape)
@@ -125,7 +115,6 @@ class TestLinop(unittest.TestCase):
         npt.assert_allclose(A(x), x1 + x2)
         self.check_linop_linear(A)
         self.check_linop_adjoint(A)
-        self.check_linop_pickleable(A)
 
     def test_Vstack(self):
         shape = [5]
@@ -136,7 +125,6 @@ class TestLinop(unittest.TestCase):
         npt.assert_allclose(A(x), util.vec([x, x]))
         self.check_linop_linear(A)
         self.check_linop_adjoint(A)
-        self.check_linop_pickleable(A)
 
         shape = [5, 3]
         I = linop.Identity(shape)
@@ -146,7 +134,6 @@ class TestLinop(unittest.TestCase):
         npt.assert_allclose(A(x), np.concatenate([x, x], axis=1))
         self.check_linop_linear(A)
         self.check_linop_adjoint(A)
-        self.check_linop_pickleable(A)
 
     def test_Diag(self):
         shape = [5]
@@ -157,7 +144,6 @@ class TestLinop(unittest.TestCase):
         npt.assert_allclose(A(x), x)
         self.check_linop_linear(A)
         self.check_linop_adjoint(A)
-        self.check_linop_pickleable(A)
 
         shape = [5, 3]
         I = linop.Identity(shape)
@@ -167,7 +153,6 @@ class TestLinop(unittest.TestCase):
         npt.assert_allclose(A(x), x)
         self.check_linop_linear(A)
         self.check_linop_adjoint(A)
-        self.check_linop_pickleable(A)
 
     def test_FFT(self):
         for ndim in [1, 2, 3]:
@@ -177,7 +162,6 @@ class TestLinop(unittest.TestCase):
                 self.check_linop_linear(A)
                 self.check_linop_adjoint(A)
                 self.check_linop_unitary(A)
-                self.check_linop_pickleable(A)
 
     def test_NUFFT(self):
         for ndim in [1, 2, 3]:
@@ -188,7 +172,6 @@ class TestLinop(unittest.TestCase):
                 A = linop.NUFFT(ishape, coord)
                 self.check_linop_linear(A)
                 self.check_linop_adjoint(A)
-                self.check_linop_pickleable(A)
 
     def test_MatMul(self):
         mshape = (5, 4, 2)
@@ -196,7 +179,6 @@ class TestLinop(unittest.TestCase):
         A = linop.MatMul(ishape, util.randn(mshape))
         self.check_linop_adjoint(A)
         self.check_linop_linear(A)
-        self.check_linop_pickleable(A)
 
     def test_RightMatMul(self):
         ishape = (5, 4, 2)
@@ -204,7 +186,6 @@ class TestLinop(unittest.TestCase):
         A = linop.RightMatMul(ishape, util.randn(mshape))
         self.check_linop_adjoint(A)
         self.check_linop_linear(A)
-        self.check_linop_pickleable(A)
 
     def test_Multiply(self):
         # Test scalar
@@ -214,7 +195,6 @@ class TestLinop(unittest.TestCase):
         A = linop.Multiply(ishape, mult)
         self.check_linop_adjoint(A)
         self.check_linop_linear(A)
-        self.check_linop_pickleable(A)
 
         x = np.array([1.0, 2.0], np.complex)
         y = np.array([1.1, 2.2], np.complex)
@@ -227,7 +207,6 @@ class TestLinop(unittest.TestCase):
         A = linop.Multiply(ishape, mult)
         self.check_linop_adjoint(A)
         self.check_linop_linear(A)
-        self.check_linop_pickleable(A)
 
         x = np.array([1.0, 2.0], np.complex)
         y = np.array([1.0, 4.0], np.complex)
@@ -241,7 +220,6 @@ class TestLinop(unittest.TestCase):
         A = linop.Multiply(ishape, mult)
         self.check_linop_adjoint(A)
         self.check_linop_linear(A)
-        self.check_linop_pickleable(A)
 
         x = np.array([1.0, 2.0], np.complex)
         y = np.array([[1.0, 4.0],
@@ -255,12 +233,10 @@ class TestLinop(unittest.TestCase):
         A = linop.Resize(oshape, ishape)
         self.check_linop_linear(A)
         self.check_linop_adjoint(A)
-        self.check_linop_pickleable(A)
 
         A = linop.Resize(oshape, ishape, oshift=[1])
         self.check_linop_linear(A)
         self.check_linop_adjoint(A)
-        self.check_linop_pickleable(A)
 
         ishape = [5]
         oshape = [3]
@@ -268,12 +244,10 @@ class TestLinop(unittest.TestCase):
         A = linop.Resize(oshape, ishape)
         self.check_linop_linear(A)
         self.check_linop_adjoint(A)
-        self.check_linop_pickleable(A)
 
         A = linop.Resize(oshape, ishape, ishift=[1])
         self.check_linop_linear(A)
         self.check_linop_adjoint(A)
-        self.check_linop_pickleable(A)
 
     def test_Downsample(self):
         ishape = [5]
@@ -282,12 +256,10 @@ class TestLinop(unittest.TestCase):
         A = linop.Downsample(ishape, factors)
         self.check_linop_linear(A)
         self.check_linop_adjoint(A)
-        self.check_linop_pickleable(A)
 
         A = linop.Downsample(ishape, factors, shift=[1])
         self.check_linop_linear(A)
         self.check_linop_adjoint(A)
-        self.check_linop_pickleable(A)
 
     def test_Upsample(self):
         oshape = [5]
@@ -296,12 +268,10 @@ class TestLinop(unittest.TestCase):
         A = linop.Downsample(oshape, factors)
         self.check_linop_linear(A)
         self.check_linop_adjoint(A)
-        self.check_linop_pickleable(A)
 
         A = linop.Downsample(oshape, factors, shift=[1])
         self.check_linop_linear(A)
         self.check_linop_adjoint(A)
-        self.check_linop_pickleable(A)
 
     def test_Interpolate(self):
 
@@ -312,7 +282,6 @@ class TestLinop(unittest.TestCase):
         A = linop.Interpolate(ishape, coord)
         self.check_linop_adjoint(A)
         self.check_linop_linear(A)
-        self.check_linop_pickleable(A)
 
         x = np.array([0.0, 1.0, 2.0, 1.0, 0.0])
 
@@ -327,7 +296,6 @@ class TestLinop(unittest.TestCase):
         A = linop.Interpolate(ishape, coord)
         self.check_linop_adjoint(A)
         self.check_linop_linear(A)
-        self.check_linop_pickleable(A)
 
         # Test batch
         ishape = [2, 2, 2]
@@ -335,7 +303,6 @@ class TestLinop(unittest.TestCase):
         A = linop.Interpolate(ishape, coord)
         self.check_linop_adjoint(A)
         self.check_linop_linear(A)
-        self.check_linop_pickleable(A)
 
     def test_Wavelet(self):
 
@@ -343,21 +310,18 @@ class TestLinop(unittest.TestCase):
         A = linop.Wavelet(shape, level=1, wave_name='haar')
         self.check_linop_adjoint(A)
         self.check_linop_unitary(A)
-        self.check_linop_pickleable(A)
 
         shape = [129]
         A = linop.Wavelet(shape)
         self.check_linop_adjoint(A)
         self.check_linop_unitary(A)
         self.check_linop_linear(A)
-        self.check_linop_pickleable(A)
 
         shape = [17]
         A = linop.Wavelet(shape, level=1)
         self.check_linop_adjoint(A)
         self.check_linop_unitary(A)
         self.check_linop_linear(A)
-        self.check_linop_pickleable(A)
 
     def test_Circshift(self):
 
@@ -367,14 +331,12 @@ class TestLinop(unittest.TestCase):
         self.check_linop_adjoint(A)
         self.check_linop_linear(A)
         self.check_linop_unitary(A)
-        self.check_linop_pickleable(A)
 
     def test_FiniteDifference(self):
         shape = [8]
         A = linop.FiniteDifference(shape)
         self.check_linop_adjoint(A)
         self.check_linop_linear(A)
-        self.check_linop_pickleable(A)
 
     def test_Transpose(self):
         shape = [3, 4]
@@ -382,7 +344,6 @@ class TestLinop(unittest.TestCase):
         self.check_linop_adjoint(A)
         self.check_linop_linear(A)
         self.check_linop_unitary(A)
-        self.check_linop_pickleable(A)
 
         x = util.randn(shape)
         npt.assert_allclose(A(x), np.transpose(x))
@@ -393,7 +354,6 @@ class TestLinop(unittest.TestCase):
         A = linop.Sum(shape, axes)
         self.check_linop_adjoint(A)
         self.check_linop_linear(A)
-        self.check_linop_pickleable(A)
 
     def test_ArrayToBlocks(self):
         ishape = [4]
@@ -403,7 +363,6 @@ class TestLinop(unittest.TestCase):
         A = linop.ArrayToBlocks(ishape, blk_shape, blk_strides)
         self.check_linop_adjoint(A)
         self.check_linop_linear(A)
-        self.check_linop_pickleable(A)
 
         x = np.array([1, 2, 3, 4], np.complex)
 
@@ -420,7 +379,6 @@ class TestLinop(unittest.TestCase):
                         A = linop.ConvolveData(data_shape, filt, mode=mode)
                         self.check_linop_linear(A, dtype=dtype, device=device)
                         self.check_linop_adjoint(A, dtype=dtype, device=device)
-                        self.check_linop_pickleable(A)
 
                         data_shape = [4, 3, 4]
                         filt = util.randn([1, 4, 2, 3], dtype=dtype)
@@ -428,7 +386,6 @@ class TestLinop(unittest.TestCase):
                             data_shape, filt, mode=mode, multi_channel=True)
                         self.check_linop_linear(A, dtype=dtype, device=device)
                         self.check_linop_adjoint(A, dtype=dtype, device=device)
-                        self.check_linop_pickleable(A)
 
                         data_shape = [1, 3, 4]
                         filt = util.randn([4, 1, 2, 3], dtype=dtype)
@@ -436,7 +393,6 @@ class TestLinop(unittest.TestCase):
                             data_shape, filt, mode=mode, multi_channel=True)
                         self.check_linop_linear(A, dtype=dtype, device=device)
                         self.check_linop_adjoint(A, dtype=dtype, device=device)
-                        self.check_linop_pickleable(A)
 
                         data_shape = [2, 3, 4]
                         filt = util.randn([4, 2, 2, 3], dtype=dtype)
@@ -446,7 +402,6 @@ class TestLinop(unittest.TestCase):
                             multi_channel=True)
                         self.check_linop_linear(A, dtype=dtype, device=device)
                         self.check_linop_adjoint(A, dtype=dtype, device=device)
-                        self.check_linop_pickleable(A)
 
                         data_shape = [2, 3, 4]
                         filt = util.randn([4, 2, 2, 3], dtype=dtype)
@@ -457,7 +412,6 @@ class TestLinop(unittest.TestCase):
                             multi_channel=True)
                         self.check_linop_linear(A, dtype=dtype, device=device)
                         self.check_linop_adjoint(A, dtype=dtype, device=device)
-                        self.check_linop_pickleable(A)
 
     def test_ConvolveFilter(self):
         for device in devices:
@@ -469,7 +423,6 @@ class TestLinop(unittest.TestCase):
                         A = linop.ConvolveFilter(filt_shape, data, mode=mode)
                         self.check_linop_linear(A, dtype=dtype, device=device)
                         self.check_linop_adjoint(A, dtype=dtype, device=device)
-                        self.check_linop_pickleable(A)
 
                         filt_shape = [1, 4, 2, 3]
                         data = util.randn([4, 3, 4], dtype=dtype)
@@ -477,7 +430,6 @@ class TestLinop(unittest.TestCase):
                             filt_shape, data, mode=mode, multi_channel=True)
                         self.check_linop_linear(A, dtype=dtype, device=device)
                         self.check_linop_adjoint(A, dtype=dtype, device=device)
-                        self.check_linop_pickleable(A)
 
                         filt_shape = [4, 1, 2, 3]
                         data = util.randn([1, 3, 4], dtype=dtype)
@@ -485,7 +437,6 @@ class TestLinop(unittest.TestCase):
                             filt_shape, data, mode=mode, multi_channel=True)
                         self.check_linop_linear(A, dtype=dtype, device=device)
                         self.check_linop_adjoint(A, dtype=dtype, device=device)
-                        self.check_linop_pickleable(A)
 
                         filt_shape = [4, 2, 2, 3]
                         data = util.randn([2, 3, 4], dtype=dtype)
@@ -495,7 +446,6 @@ class TestLinop(unittest.TestCase):
                             multi_channel=True)
                         self.check_linop_linear(A, dtype=dtype, device=device)
                         self.check_linop_adjoint(A, dtype=dtype, device=device)
-                        self.check_linop_pickleable(A)
 
                         filt_shape = [4, 2, 2, 3]
                         strides = [2, 2]
@@ -506,4 +456,3 @@ class TestLinop(unittest.TestCase):
                             multi_channel=True)
                         self.check_linop_linear(A, dtype=dtype, device=device)
                         self.check_linop_adjoint(A, dtype=dtype, device=device)
-                        self.check_linop_pickleable(A)
