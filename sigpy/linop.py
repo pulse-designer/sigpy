@@ -960,13 +960,11 @@ class Interpolate(Linop):
         coord (array): Coordinates, values from - nx / 2 to nx / 2 - 1.
                 ndim can only be 1, 2 or 3, of shape pts_shape + [ndim]
         width (float): Width of interp. kernel in grid size.
-        kernel (array): Look-up kernel of kernel K, from K[0] to K[width].
-        scale (float): Scaling of coordinates.
-        shift (float): Shifting of coordinates.
+        kernel (function): interpolation kernel function.
 
     """
 
-    def __init__(self, ishape, coord, width, kernel):
+    def __init__(self, ishape, coord, width=2, kernel=interp.linear_kernel):
         ndim = coord.shape[-1]
         oshape = list(ishape[:-ndim]) + list(coord.shape[:-1])
 
@@ -980,11 +978,12 @@ class Interpolate(Linop):
         device = backend.get_device(input)
         with device:
             coord = backend.to_device(self.coord, device)
-            kernel = backend.to_device(self.kernel, device)
-            return interp.interpolate(input, self.width, kernel, coord)
+            return interp.interpolate(input, coord,
+                                      width=self.width, kernel=self.kernel)
 
     def _adjoint_linop(self):
-        return Gridding(self.ishape, self.coord, self.width, self.kernel)
+        return Gridding(self.ishape, self.coord,
+                        width=self.width, kernel=self.kernel)
 
 
 class Gridding(Linop):
@@ -992,17 +991,14 @@ class Gridding(Linop):
 
     Args:
         oshape (tuple of ints): Output shape = batch_shape + pts_shape
-        ishape (tuple of ints): Input shape = batch_shape + grd_shape
         coord (array): Coordinates, values from - nx / 2 to nx / 2 - 1.
                 ndim can only be 1, 2 or 3. of shape pts_shape + [ndim]
         width (float): Width of interp. kernel in grid size
-        kernel (array): Llook-up kernel of kernel K, from K[0] to K[width]
-            scale (float): Scaling of coordinates.
-            shift (float): Shifting of coordinates.
+        kernel (function): interpolation kernel function.
 
     """
 
-    def __init__(self, oshape, coord, width, kernel):
+    def __init__(self, oshape, coord, width=2, kernel=interp.linear_kernel):
         ndim = coord.shape[-1]
         ishape = list(oshape[:-ndim]) + list(coord.shape[:-1])
 
@@ -1016,12 +1012,12 @@ class Gridding(Linop):
         device = backend.get_device(input)
         with device:
             coord = backend.to_device(self.coord, device)
-            kernel = backend.to_device(self.kernel, device)
-            return interp.gridding(input, self.oshape,
-                                   self.width, kernel, coord)
+            return interp.gridding(input, self.oshape, coord,
+                                   width=self.width, kernel=self.kernel)
 
     def _adjoint_linop(self):
-        return Interpolate(self.oshape, self.coord, self.width, self.kernel)
+        return Interpolate(self.oshape, self.coord,
+                           width=self.width, kernel=self.kernel)
 
 
 class Resize(Linop):
@@ -1391,14 +1387,12 @@ class NUFFT(Linop):
         coord (array): Coordinates, with values [-ishape / 2, ishape / 2]
         oversamp (float): Oversampling factor.
         width (float): Kernel width.
-        n (int): Kernel sampling number.
 
     """
-    def __init__(self, ishape, coord, oversamp=1.25, width=4.0, n=128):
+    def __init__(self, ishape, coord, oversamp=1.25, width=4.0):
         self.coord = coord
         self.oversamp = oversamp
         self.width = width
-        self.n = n
 
         ndim = coord.shape[-1]
 
@@ -1411,11 +1405,11 @@ class NUFFT(Linop):
         with device:
             return fourier.nufft(
                 input, self.coord,
-                oversamp=self.oversamp, width=self.width, n=self.n)
+                oversamp=self.oversamp, width=self.width)
 
     def _adjoint_linop(self):
         return NUFFTAdjoint(self.ishape, self.coord,
-                            oversamp=self.oversamp, width=self.width, n=self.n)
+                            oversamp=self.oversamp, width=self.width)
 
 
 class NUFFTAdjoint(Linop):
@@ -1426,14 +1420,12 @@ class NUFFTAdjoint(Linop):
         coord (array): Coordinates, with values [-ishape / 2, ishape / 2]
         oversamp (float): Oversampling factor.
         width (float): Kernel width.
-        n (int): Kernel sampling number.
 
     """
-    def __init__(self, oshape, coord, oversamp=1.25, width=4.0, n=128):
+    def __init__(self, oshape, coord, oversamp=1.25, width=4.0):
         self.coord = coord
         self.oversamp = oversamp
         self.width = width
-        self.n = n
 
         ndim = coord.shape[-1]
 
@@ -1446,12 +1438,12 @@ class NUFFTAdjoint(Linop):
         with device:
             return fourier.nufft_adjoint(
                 input, self.coord, self.oshape,
-                oversamp=self.oversamp, width=self.width, n=self.n)
+                oversamp=self.oversamp, width=self.width)
 
     def _adjoint_linop(self):
 
         return NUFFT(self.oshape, self.coord,
-                     oversamp=self.oversamp, width=self.width, n=self.n)
+                     oversamp=self.oversamp, width=self.width)
 
 
 class ConvolveData(Linop):

@@ -18,7 +18,7 @@ def fft(input, oshape=None, axes=None, center=True, norm='ortho'):
         input (array): input array.
         oshape (None or array of ints): output shape.
         axes (None or array of ints): Axes over which to compute the FFT.
-        norm (Nonr or ``"ortho"``): Keyword to specify the normalization mode.
+        norm (None or ``"ortho"``): Keyword to specify the normalization mode.
 
     Returns:
         array: FFT result of dimension oshape.
@@ -76,7 +76,7 @@ def ifft(input, oshape=None, axes=None, center=True, norm='ortho'):
     return output
 
 
-def nufft(input, coord, oversamp=1.25, width=4.0, n=128):
+def nufft(input, coord, oversamp=1.25, width=4.0):
     """Non-uniform Fast Fourier Transform.
 
     Args:
@@ -92,7 +92,6 @@ def nufft(input, coord, oversamp=1.25, width=4.0, n=128):
         oversamp (float): oversampling factor.
         width (float): interpolation kernel full-width in terms of
             oversampled grid.
-        n (int): number of sampling points of the interpolation kernel.
 
     Returns:
         array: Fourier domain data of shape
@@ -125,9 +124,9 @@ def nufft(input, coord, oversamp=1.25, width=4.0, n=128):
 
     # Interpolate
     coord = _scale_coord(coord, input.shape, oversamp)
-    kernel = _get_kaiser_bessel_kernel(n, width, beta, coord.dtype,
-                                       backend.get_device(input))
-    output = interp.interpolate(output, width, kernel, coord)
+    kernel = interp.get_kaiser_bessel_kernel(beta)
+    output = interp.interpolate(output, coord, width=width, kernel=kernel)
+    output /= width**ndim
 
     return output
 
@@ -149,7 +148,7 @@ def estimate_shape(coord):
     return shape
 
 
-def nufft_adjoint(input, coord, oshape=None, oversamp=1.25, width=4.0, n=128):
+def nufft_adjoint(input, coord, oshape=None, oversamp=1.25, width=4.0):
     """Adjoint non-uniform Fast Fourier Transform.
 
     Args:
@@ -167,7 +166,6 @@ def nufft_adjoint(input, coord, oshape=None, oversamp=1.25, width=4.0, n=128):
         oversamp (float): oversampling factor.
         width (float): interpolation kernel full-width in terms of
             oversampled grid.
-        n (int): number of sampling points of the interpolation kernel.
 
     Returns:
         array: signal domain array with shape specified by oshape.
@@ -187,9 +185,10 @@ def nufft_adjoint(input, coord, oshape=None, oversamp=1.25, width=4.0, n=128):
 
     # Gridding
     coord = _scale_coord(coord, oshape, oversamp)
-    kernel = _get_kaiser_bessel_kernel(n, width, beta, coord.dtype,
-                                       backend.get_device(input))
-    output = interp.gridding(input, os_shape, width, kernel, coord)
+    kernel = interp.get_kaiser_bessel_kernel(beta)
+    output = interp.gridding(input, os_shape, coord,
+                             width=width, kernel=kernel)
+    output /= width**ndim
 
     # IFFT
     output = ifft(output, axes=range(-ndim, 0), norm=None)
@@ -233,30 +232,6 @@ def _ifftc(input, oshape=None, axes=None, norm='ortho'):
     tmp = xp.fft.ifftn(tmp, axes=axes, norm=norm)
     output = xp.fft.fftshift(tmp, axes=axes)
     return output
-
-
-def _get_kaiser_bessel_kernel(n, width, beta, dtype, device):
-    """Precompute Kaiser Bessel kernel.
-
-    Precomputes Kaiser-Bessel kernel with n points.
-
-    Args:
-        n (int): number of sampling points.
-        width (float): kernel width.
-        beta (float): kaiser bessel parameter.
-        dtype (dtype): output data type.
-        device (Device): output device.
-
-    Returns:
-        array: Kaiser-Bessel kernel table.
-
-    """
-    device = backend.Device(device)
-    xp = device.xp
-    with device:
-        x = xp.arange(n, dtype=dtype) / n
-        kernel = 1 / width * xp.i0(beta * (1 - x**2)**0.5).astype(dtype)
-        return kernel
 
 
 def _scale_coord(coord, shape, oversamp):
