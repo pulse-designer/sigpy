@@ -85,6 +85,7 @@ def interpolate(input, coord, width=2, kernel=linear_kernel):
         output (array): Output array of coord.shape[:-1]
 
     """
+    xp = backend.get_array_module(input)
     ndim = coord.shape[-1]
 
     batch_shape = input.shape[:-ndim]
@@ -93,19 +94,12 @@ def interpolate(input, coord, width=2, kernel=linear_kernel):
     pts_shape = coord.shape[:-1]
     npts = util.prod(pts_shape)
 
-    xp = backend.get_array_module(input)
-
     input = input.reshape([batch_size] + list(input.shape[-ndim:]))
     coord = coord.reshape([npts, ndim])
     output = xp.zeros([batch_size, npts], dtype=input.dtype)
 
-    _interpolate = _get_interpolate(ndim, xp, kernel)
-    if xp == np:
-        _interpolate(output, input, width, coord)
-    else:  # pragma: no cover
-        blocks = math.ceil(npts * batch_size / config.numba_cuda_threads)
-        _interpolate[blocks, config.numba_cuda_threads](
-            output, input, width, coord)
+    _interpolate = _get_interpolate(ndim, xp, kernel, npts, batch_size)
+    _interpolate(output, input, width, coord)
 
     return output.reshape(batch_shape + pts_shape)
 
@@ -124,6 +118,7 @@ def gridding(input, shape, coord, width=2, kernel=linear_kernel):
         output (array): Output array.
 
     """
+    xp = backend.get_array_module(input)
     ndim = coord.shape[-1]
 
     batch_shape = shape[:-ndim]
@@ -133,74 +128,76 @@ def gridding(input, shape, coord, width=2, kernel=linear_kernel):
     npts = util.prod(pts_shape)
 
     xp = backend.get_array_module(input)
-    isreal = np.issubdtype(input.dtype, np.floating)
 
     input = input.reshape([batch_size, npts])
     coord = coord.reshape([npts, ndim])
     output = xp.zeros([batch_size] + list(shape[-ndim:]), dtype=input.dtype)
 
-    _gridding = _get_gridding(ndim, xp, isreal, kernel)
-    if xp == np:
-        _gridding(output, input, width, coord)
-    else:  # pragma: no cover
-        blocks = math.ceil(npts * batch_size / config.numba_cuda_threads)
-        _gridding[blocks, config.numba_cuda_threads](
-            output, input, width, coord)
+    isreal = np.issubdtype(input.dtype, np.floating)
+    _gridding = _get_gridding(ndim, xp, kernel, npts, batch_size, isreal)
+    _gridding(output, input, width, coord)
 
     return output.reshape(shape)
 
 
-def _get_interpolate(ndim, xp, kernel):
-    if ndim == 1:
-        if xp == np:
-            _interpolate = _get_interpolate1(kernel)
-        else:  # pragma: no cover
-            _interpolate = _get_interpolate1_cuda(kernel)
-    elif ndim == 2:
-        if xp == np:
-            _interpolate = _get_interpolate2(kernel)
-        else:  # pragma: no cover
-            _interpolate = _get_interpolate2_cuda(kernel)
-    elif ndim == 3:
-        if xp == np:
-            _interpolate = _get_interpolate3(kernel)
-        else:  # pragma: no cover
-            _interpolate = _get_interpolate3_cuda(kernel)
-    else:
+def _get_interpolate(ndim, xp, kernel, npts, batch_size):
+    if ndim > 3 or ndim < 1:
         raise ValueError(
             'Number of dimensions can only be 1, 2 or 3, got {}'.format(ndim))
+
+    if xp == np:
+        if ndim == 1:
+            _interpolate = _get_interpolate1(kernel)
+        elif ndim == 2:
+            _interpolate = _get_interpolate2(kernel)
+        elif ndim == 3:
+            _interpolate = _get_interpolate3(kernel)
+    else:  # pragma: no cover
+        threads = config.numba_cuda_threads
+        blocks = math.ceil(npts * batch_size / threads)
+        if ndim == 1:
+            _interpolate = _get_interpolate1_cuda(kernel)[blocks, threads]
+        elif ndim == 2:
+            _interpolate = _get_interpolate2_cuda(kernel)[blocks, threads]
+        elif ndim == 3:
+            _interpolate = _get_interpolate3_cuda(kernel)[blocks, threads]
 
     return _interpolate
 
 
-def _get_gridding(ndim, xp, isreal, kernel):
-    if ndim == 1:
-        if xp == np:
-            _gridding = _get_gridding1(kernel)
-        else:  # pragma: no cover
-            if isreal:
-                _gridding = _get_gridding1_cuda(kernel)
-            else:
-                _gridding = _get_gridding1_cuda_complex(kernel)
-    elif ndim == 2:
-        if xp == np:
-            _gridding = _get_gridding2(kernel)
-        else:  # pragma: no cover
-            if isreal:
-                _gridding = _get_gridding2_cuda(kernel)
-            else:
-                _gridding = _get_gridding2_cuda_complex(kernel)
-    elif ndim == 3:
-        if xp == np:
-            _gridding = _get_gridding3(kernel)
-        else:  # pragma: no cover
-            if isreal:
-                _gridding = _get_gridding3_cuda(kernel)
-            else:
-                _gridding = _get_gridding3_cuda_complex(kernel)
-    else:
+def _get_gridding(ndim, xp, kernel, npts, batch_size, isreal):
+    if ndim > 3 or ndim < 1:
         raise ValueError(
             'Number of dimensions can only be 1, 2 or 3, got {}'.format(ndim))
+
+    if xp == np:
+        if ndim == 1:
+            _gridding = _get_gridding1(kernel)
+        elif ndim == 2:
+            _gridding = _get_gridding2(kernel)
+        elif ndim == 3:
+            _gridding = _get_gridding3(kernel)
+    else:  # pragma: no cover
+        threads = config.numba_cuda_threads
+        blocks = math.ceil(npts * batch_size / threads)
+
+        if isreal:
+            if ndim == 1:
+                _gridding = _get_gridding1_cuda(kernel)[blocks, threads]
+            elif ndim == 2:
+                _gridding = _get_gridding2_cuda(kernel)[blocks, threads]
+            elif ndim == 3:
+                _gridding = _get_gridding3_cuda(kernel)[blocks, threads]
+        else:
+            if ndim == 1:
+                _gridding = _get_gridding1_cuda_complex(kernel)[
+                    blocks, threads]
+            elif ndim == 2:
+                _gridding = _get_gridding2_cuda_complex(kernel)[
+                    blocks, threads]
+            elif ndim == 3:
+                _gridding = _get_gridding3_cuda_complex(kernel)[
+                    blocks, threads]
 
     return _gridding
 

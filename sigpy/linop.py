@@ -705,7 +705,8 @@ class FFT(Linop):
         super().__init__(shape, shape)
 
     def _apply(self, input):
-        with backend.get_device(input):
+        device = backend.get_device(input)
+        with device:
             return fourier.fft(input, axes=self.axes, center=self.center)
 
     def _adjoint_linop(self):
@@ -1389,7 +1390,7 @@ class NUFFT(Linop):
         width (float): Kernel width.
 
     """
-    def __init__(self, ishape, coord, oversamp=1.25, width=4.0):
+    def __init__(self, ishape, coord, oversamp=1.25, width=4):
         self.coord = coord
         self.oversamp = oversamp
         self.width = width
@@ -1422,7 +1423,7 @@ class NUFFTAdjoint(Linop):
         width (float): Kernel width.
 
     """
-    def __init__(self, oshape, coord, oversamp=1.25, width=4.0):
+    def __init__(self, oshape, coord, oversamp=1.25, width=4):
         self.coord = coord
         self.oversamp = oversamp
         self.width = width
@@ -1437,11 +1438,10 @@ class NUFFTAdjoint(Linop):
         device = backend.get_device(input)
         with device:
             return fourier.nufft_adjoint(
-                input, self.coord, self.oshape,
+                input, self.coord, oshape=self.oshape,
                 oversamp=self.oversamp, width=self.width)
 
     def _adjoint_linop(self):
-
         return NUFFT(self.oshape, self.coord,
                      oversamp=self.oversamp, width=self.width)
 

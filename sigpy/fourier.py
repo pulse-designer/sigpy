@@ -76,7 +76,7 @@ def ifft(input, oshape=None, axes=None, center=True, norm='ortho'):
     return output
 
 
-def nufft(input, coord, oversamp=1.25, width=4.0):
+def nufft(input, coord, oversamp=1.25, width=4):
     """Non-uniform Fast Fourier Transform.
 
     Args:
@@ -148,7 +148,7 @@ def estimate_shape(coord):
     return shape
 
 
-def nufft_adjoint(input, coord, oshape=None, oversamp=1.25, width=4.0):
+def nufft_adjoint(input, coord, oshape=None, oversamp=1.25, width=4):
     """Adjoint non-uniform Fast Fourier Transform.
 
     Args:
