@@ -19,7 +19,7 @@ numba_cuda_threads = 256
 try:
     import numba.cuda
     a = numba.cuda.device_array([1])
-    numba_cuda_enabled = False
+    numba_cuda_enabled = True
 except Exception:
     numba_cuda_enabled = False
 

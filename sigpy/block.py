@@ -2,6 +2,7 @@
 """Block reshape functions.
 
 """
+import math
 import numpy as np
 import numba as nb
 
@@ -35,111 +36,30 @@ def array_to_blocks(input, blk_shape, blk_strides):
     if len(blk_shape) != len(blk_strides):
         raise ValueError('blk_shape must have the same length as blk_strides.')
 
-    D = len(blk_shape)
-    num_blks = [(i - b + s) // s for i, b,
-                s in zip(input.shape[-D:], blk_shape, blk_strides)]
-    batch_shape = list(input.shape[:-D])
+    ndim = len(blk_shape)
+    blk_shape = tuple(blk_shape)
+    blk_strides = tuple(blk_strides)
+    num_blks = tuple(
+        (i - b + s) // s
+        for i, b, s in zip(input.shape[-ndim:], blk_shape, blk_strides))
+    batch_shape = input.shape[:-ndim]
     batch_size = util.prod(batch_shape)
-    xp = backend.get_array_module(input)
-    output = xp.zeros([batch_size] + num_blks + blk_shape,
-                      dtype=input.dtype)
-    input = input.reshape([batch_size] + list(input.shape[-D:]))
 
-    if D == 1:
-        if xp == np:
-            _array_to_blocks1(output, input,
-                              batch_size,
-                              blk_shape[-1],
-                              blk_strides[-1],
-                              num_blks[-1])
-        else:  # pragma: no cover
-            _array_to_blocks1_cuda(input,
-                                   batch_size,
-                                   blk_shape[-1],
-                                   blk_strides[-1],
-                                   num_blks[-1],
-                                   output,
-                                   size=batch_size *
-                                   num_blks[-1] * blk_shape[-1])
-    elif D == 2:
-        if xp == np:
-            _array_to_blocks2(output, input,
-                              batch_size, blk_shape[-1], blk_shape[-2],
-                              blk_strides[-1], blk_strides[-2],
-                              num_blks[-1], num_blks[-2])
-        else:  # pragma: no cover
-            _array_to_blocks2_cuda(input,
-                                   batch_size,
-                                   blk_shape[-1], blk_shape[-2],
-                                   blk_strides[-1], blk_strides[-2],
-                                   num_blks[-1], num_blks[-2],
-                                   output,
-                                   size=batch_size *
-                                   num_blks[-1] * num_blks[-2] *
-                                   blk_shape[-1] * blk_shape[-2])
-    elif D == 3:
-        if xp == np:
-            _array_to_blocks3(output,
-                              input,
-                              batch_size,
-                              blk_shape[-1],
-                              blk_shape[-2],
-                              blk_shape[-3],
-                              blk_strides[-1],
-                              blk_strides[-2],
-                              blk_strides[-3],
-                              num_blks[-1],
-                              num_blks[-2],
-                              num_blks[-3])
-        else:  # pragma: no cover
-            _array_to_blocks3_cuda(input,
-                                   batch_size,
-                                   blk_shape[-1], blk_shape[-2],
-                                   blk_shape[-3],
-                                   blk_strides[-1], blk_strides[-2],
-                                   blk_strides[-3],
-                                   num_blks[-1], num_blks[-2],
-                                   num_blks[-3],
-                                   output,
-                                   size=batch_size *
-                                   num_blks[-1] * num_blks[-2] *
-                                   num_blks[-3] *
-                                   blk_shape[-1] * blk_shape[-2] *
-                                   blk_shape[-3])
-    elif D == 4:
-        if xp == np:
-            _array_to_blocks4(output,
-                              input,
-                              batch_size,
-                              blk_shape[-1],
-                              blk_shape[-2],
-                              blk_shape[-3],
-                              blk_shape[-4],
-                              blk_strides[-1],
-                              blk_strides[-2],
-                              blk_strides[-3],
-                              blk_strides[-4],
-                              num_blks[-1],
-                              num_blks[-2],
-                              num_blks[-3],
-                              num_blks[-4])
-        else:  # pragma: no cover
-            _array_to_blocks4_cuda(input,
-                                   batch_size,
-                                   blk_shape[-1], blk_shape[-2],
-                                   blk_shape[-3], blk_shape[-4],
-                                   blk_strides[-1], blk_strides[-2],
-                                   blk_strides[-3], blk_strides[-4],
-                                   num_blks[-1], num_blks[-2],
-                                   num_blks[-3], num_blks[-4],
-                                   output,
-                                   size=batch_size *
-                                   num_blks[-1] * num_blks[-2] *
-                                   num_blks[-3] * num_blks[-4] *
-                                   blk_shape[-1] * blk_shape[-2] *
-                                   blk_shape[-3] * blk_shape[-4])
+    xp = backend.get_array_module(input)
+    output = xp.zeros((batch_size, ) + num_blks + blk_shape, dtype=input.dtype)
+    input = input.reshape((batch_size, ) + input.shape[-ndim:])
+
+    _array_to_blocks = _select_array_to_blocks(ndim, xp)
+    if xp == np:
+        _array_to_blocks(
+            output, input, batch_size, blk_shape, blk_strides, num_blks)
     else:
-        raise ValueError('Only support D <= 4, got {}'.format(D))
+        n = batch_size * util.prod(blk_shape) * util.prod(num_blks)
+        blocks = math.ceil(n / config.numba_cuda_threads)
+
+        _array_to_blocks[blocks, config.numba_cuda_threads](
+            output, input, batch_size, xp.asarray(blk_shape),
+            xp.asarray(blk_strides), xp.asarray(num_blks))
 
     return output.reshape(batch_shape + num_blks + blk_shape)
 
@@ -160,189 +80,117 @@ def blocks_to_array(input, oshape, blk_shape, blk_strides):
     if len(blk_shape) != len(blk_strides):
         raise ValueError('blk_shape must have the same length as blk_strides.')
 
-    D = len(blk_shape)
-    num_blks = input.shape[-(2 * D):-D]
-    batch_shape = list(oshape[:-D])
+    ndim = len(blk_shape)
+    blk_shape = tuple(blk_shape)
+    blk_strides = tuple(blk_strides)
+    num_blks = input.shape[-(2 * ndim):-ndim]
+    batch_shape = tuple(oshape[:-ndim])
     batch_size = util.prod(batch_shape)
-    xp = backend.get_array_module(input)
-    output = xp.zeros([batch_size] + list(oshape[-D:]),
-                      dtype=input.dtype)
-    input = input.reshape([batch_size] + list(input.shape[-2 * D:]))
 
-    if D == 1:
-        if xp == np:
-            _blocks_to_array1(output, input,
-                              batch_size, blk_shape[-1],
-                              blk_strides[-1],
-                              num_blks[-1])
-        else:  # pragma: no cover
-            if np.issubdtype(input.dtype, np.floating):
-                _blocks_to_array1_cuda(input,
-                                       batch_size, blk_shape[-1],
-                                       blk_strides[-1],
-                                       num_blks[-1],
-                                       output,
-                                       size=batch_size *
-                                       num_blks[-1] * blk_shape[-1])
-            else:
-                _blocks_to_array1_cuda_complex(input,
-                                               batch_size, blk_shape[-1],
-                                               blk_strides[-1],
-                                               num_blks[-1],
-                                               output,
-                                               size=batch_size
-                                               * num_blks[-1] *
-                                               blk_shape[-1])
-    elif D == 2:
-        if xp == np:
-            _blocks_to_array2(output, input,
-                              batch_size, blk_shape[-1], blk_shape[-2],
-                              blk_strides[-1], blk_strides[-2],
-                              num_blks[-1], num_blks[-2])
-        else:  # pragma: no cover
-            if np.issubdtype(input.dtype, np.floating):
-                _blocks_to_array2_cuda(input,
-                                       batch_size,
-                                       blk_shape[-1], blk_shape[-2],
-                                       blk_strides[-1], blk_strides[-2],
-                                       num_blks[-1], num_blks[-2],
-                                       output,
-                                       size=batch_size *
-                                       num_blks[-1] * num_blks[-2] *
-                                       blk_shape[-1] * blk_shape[-2])
-            else:  # pragma: no cover
-                _blocks_to_array2_cuda_complex(
-                    input,
-                    batch_size, blk_shape[-1], blk_shape[-2],
-                    blk_strides[-1], blk_strides[-2],
-                    num_blks[-1], num_blks[-2],
-                    output,
-                    size=batch_size * num_blks[-1] * num_blks[-2] *
-                    blk_shape[-1] * blk_shape[-2])
-    elif D == 3:
-        if xp == np:
-            _blocks_to_array3(output,
-                              input,
-                              batch_size, blk_shape[-1],
-                              blk_shape[-2],
-                              blk_shape[-3],
-                              blk_strides[-1],
-                              blk_strides[-2],
-                              blk_strides[-3],
-                              num_blks[-1],
-                              num_blks[-2],
-                              num_blks[-3])
-        else:  # pragma: no cover
-            if np.issubdtype(input.dtype, np.floating):
-                _blocks_to_array3_cuda(
-                    input,
-                    batch_size,
-                    blk_shape[-1], blk_shape[-2], blk_shape[-3],
-                    blk_strides[-1], blk_strides[-2], blk_strides[-3],
-                    num_blks[-1], num_blks[-2], num_blks[-3],
-                    output,
-                    size=batch_size * num_blks[-1] * num_blks[-2] *
-                    num_blks[-3] * blk_shape[-1] * blk_shape[-2] *
-                    blk_shape[-3])
-            else:
-                _blocks_to_array3_cuda_complex(
-                    input,
-                    batch_size,
-                    blk_shape[-1], blk_shape[-2], blk_shape[-3],
-                    blk_strides[-1], blk_strides[-2], blk_strides[-3],
-                    num_blks[-1], num_blks[-2], num_blks[-3],
-                    output,
-                    size=batch_size *
-                    num_blks[-1] * num_blks[-2] * num_blks[-3] *
-                    blk_shape[-1] * blk_shape[-2] * blk_shape[-3])
-    elif D == 4:
-        if xp == np:
-            _blocks_to_array4(output,
-                              input,
-                              batch_size, blk_shape[-1],
-                              blk_shape[-2],
-                              blk_shape[-3],
-                              blk_shape[-4],
-                              blk_strides[-1],
-                              blk_strides[-2],
-                              blk_strides[-3],
-                              blk_strides[-4],
-                              num_blks[-1],
-                              num_blks[-2],
-                              num_blks[-3],
-                              num_blks[-4])
-        else:  # pragma: no cover
-            if np.issubdtype(input.dtype, np.floating):
-                _blocks_to_array4_cuda(
-                    input,
-                    batch_size, blk_shape[-1], blk_shape[-2],
-                    blk_shape[-3], blk_shape[-4],
-                    blk_strides[-1], blk_strides[-2],
-                    blk_strides[-3], blk_strides[-4],
-                    num_blks[-1], num_blks[-2],
-                    num_blks[-3], num_blks[-4],
-                    output,
-                    size=batch_size *
-                    num_blks[-1] * num_blks[-2] *
-                    num_blks[-3] * num_blks[-4] *
-                    blk_shape[-1] * blk_shape[-2] *
-                    blk_shape[-3] * blk_shape[-4])
-            else:
-                _blocks_to_array4_cuda_complex(
-                    input,
-                    batch_size, blk_shape[-1], blk_shape[-2],
-                    blk_shape[-3], blk_shape[-4],
-                    blk_strides[-1], blk_strides[-2],
-                    blk_strides[-3], blk_strides[-4],
-                    num_blks[-1], num_blks[-2],
-                    num_blks[-3], num_blks[-4],
-                    output,
-                    size=batch_size * num_blks[-1] * num_blks[-2] *
-                    num_blks[-3] * num_blks[-4] *
-                    blk_shape[-1] * blk_shape[-2] *
-                    blk_shape[-3] * blk_shape[-4])
+    xp = backend.get_array_module(input)
+    output = xp.zeros((batch_size, ) + tuple(oshape[-ndim:]),
+                      dtype=input.dtype)
+    input = input.reshape((batch_size, ) + input.shape[-2 * ndim:])
+    _blocks_to_array = _select_blocks_to_array(ndim, xp)
+    if xp == np:
+        _blocks_to_array(
+            output, input, batch_size, blk_shape, blk_strides, num_blks)
     else:
-        raise ValueError('Only support D <= 4, got {}'.format(D))
+        n = batch_size * util.prod(blk_shape) * util.prod(num_blks)
+        blocks = math.ceil(n / config.numba_cuda_threads)
+
+        _blocks_to_array[blocks, config.numba_cuda_threads](
+            output, input, batch_size,
+            xp.asarray(blk_shape), xp.asarray(blk_strides),
+            xp.asarray(num_blks))
 
     return output.reshape(oshape)
 
 
+def _select_array_to_blocks(ndim, xp):
+    if ndim == 1:
+        if xp == np:
+            _array_to_blocks = _array_to_blocks1
+        else:  # pragma: no cover
+            _array_to_blocks = _array_to_blocks1_cuda
+    elif ndim == 2:
+        if xp == np:
+            _array_to_blocks = _array_to_blocks2
+        else:  # pragma: no cover
+            _array_to_blocks = _array_to_blocks2_cuda
+    elif ndim == 3:
+        if xp == np:
+            _array_to_blocks = _array_to_blocks3
+        else:  # pragma: no cover
+            _array_to_blocks = _array_to_blocks3_cuda
+    else:
+        raise ValueError(
+            'Number of dimensions can only be 1, 2 or 3, got {}'.format(ndim))
+
+    return _array_to_blocks
+
+
+def _select_blocks_to_array(ndim, xp):
+    if ndim == 1:
+        if xp == np:
+            _blocks_to_array = _blocks_to_array1
+        else:  # pragma: no cover
+            _blocks_to_array = _blocks_to_array1_cuda
+    elif ndim == 2:
+        if xp == np:
+            _blocks_to_array = _blocks_to_array2
+        else:  # pragma: no cover
+            _blocks_to_array = _blocks_to_array2_cuda
+    elif ndim == 3:
+        if xp == np:
+            _blocks_to_array = _blocks_to_array3
+        else:  # pragma: no cover
+            _blocks_to_array = _blocks_to_array3_cuda
+    else:
+        raise ValueError(
+            'Number of dimensions can only be 1, 2 or 3, got {}'.format(ndim))
+
+    return _blocks_to_array
+
+
 @nb.jit(nopython=True, cache=True)  # pragma: no cover
-def _array_to_blocks1(output, input, batch_size, Bx, Sx, Nx):
+def _array_to_blocks1(output, input, batch_size,
+                      blk_shape, blk_strides, num_blks):
     for b in range(batch_size):
-        for nx in range(Nx):
-            for bx in range(Bx):
-                ix = nx * Sx + bx
+        for nx in range(num_blks[-1]):
+            for bx in range(blk_shape[-1]):
+                ix = nx * blk_strides[-1] + bx
                 if ix < input.shape[-1]:
                     output[b, nx, bx] = input[b, ix]
 
 
 @nb.jit(nopython=True, cache=True)  # pragma: no cover
-def _array_to_blocks2(output, input, batch_size, Bx, By, Sx, Sy, Nx, Ny):
+def _array_to_blocks2(output, input, batch_size,
+                      blk_shape, blk_strides, num_blks):
     for b in range(batch_size):
-        for ny in range(Ny):
-            for nx in range(Nx):
-                for by in range(By):
-                    for bx in range(Bx):
-                        iy = ny * Sy + by
-                        ix = nx * Sx + bx
+        for ny in range(num_blks[-2]):
+            for nx in range(num_blks[-1]):
+                for by in range(blk_shape[-2]):
+                    for bx in range(blk_shape[-1]):
+                        iy = ny * blk_strides[-2] + by
+                        ix = nx * blk_strides[-1] + bx
                         if ix < input.shape[-1] and iy < input.shape[-2]:
                             output[b, ny, nx, by, bx] = input[b, iy, ix]
 
 
 @nb.jit(nopython=True, cache=True)  # pragma: no cover
-def _array_to_blocks3(output, input, batch_size, Bx, By, Bz,
-                      Sx, Sy, Sz, Nx, Ny, Nz):
+def _array_to_blocks3(output, input, batch_size,
+                      blk_shape, blk_strides, num_blks):
     for b in range(batch_size):
-        for nz in range(Nz):
-            for ny in range(Ny):
-                for nx in range(Nx):
-                    for bz in range(Bz):
-                        for by in range(By):
-                            for bx in range(Bx):
-                                iz = nz * Sz + bz
-                                iy = ny * Sy + by
-                                ix = nx * Sx + bx
+        for nz in range(num_blks[-3]):
+            for ny in range(num_blks[-2]):
+                for nx in range(num_blks[-1]):
+                    for bz in range(blk_shape[-3]):
+                        for by in range(blk_shape[-2]):
+                            for bx in range(blk_shape[-1]):
+                                iz = nz * blk_strides[-3] + bz
+                                iy = ny * blk_strides[-2] + by
+                                ix = nx * blk_strides[-1] + bx
                                 if (ix < input.shape[-1] and
                                     iy < input.shape[-2] and
                                     iz < input.shape[-3]):
@@ -351,493 +199,185 @@ def _array_to_blocks3(output, input, batch_size, Bx, By, Bz,
 
 
 @nb.jit(nopython=True, cache=True)  # pragma: no cover
-def _array_to_blocks4(output, input, batch_size, Bx, By, Bz, Bt,
-                      Sx, Sy, Sz, St,
-                      Nx, Ny, Nz, Nt):
+def _blocks_to_array1(output, input, batch_size,
+                      blk_shape, blk_strides, num_blks):
     for b in range(batch_size):
-        for nt in range(Nt):
-            for nz in range(Nz):
-                for ny in range(Ny):
-                    for nx in range(Nx):
-                        for bt in range(Bt):
-                            for bz in range(Bz):
-                                for by in range(By):
-                                    for bx in range(Bx):
-                                        it = nt * St + bt
-                                        iz = nz * Sz + bz
-                                        iy = ny * Sy + by
-                                        ix = nx * Sx + bx
-                                        if (ix < input.shape[-1] and
-                                            iy < input.shape[-2] and
-                                            iz < input.shape[-3] and
-                                            it < input.shape[-4]):
-                                            output[b, nt, nz, ny, nx,
-                                                   bt, bz, by,
-                                                   bx] = input[b, it,
-                                                               iz, iy, ix]
-
-
-@nb.jit(nopython=True, cache=True)  # pragma: no cover
-def _blocks_to_array1(output, input, batch_size, Bx, Sx, Nx):
-    for b in range(batch_size):
-        for nx in range(Nx):
-            for bx in range(Bx):
-                ix = nx * Sx + bx
-                if ix < output.shape[-1]:
+        for ix in range(output.shape[-1]):
+            rx = ix % blk_strides[-1]
+            for bx in range(rx, blk_shape[-1], blk_strides[-1]):
+                nx = (ix - bx) // blk_strides[-1]
+                if nx >= 0 and nx < num_blks[-1]:
                     output[b, ix] += input[b, nx, bx]
 
 
 @nb.jit(nopython=True, cache=True)  # pragma: no cover
-def _blocks_to_array2(output, input, batch_size, Bx, By, Sx, Sy, Nx, Ny):
+def _blocks_to_array2(output, input, batch_size,
+                      blk_shape, blk_strides, num_blks):
     for b in range(batch_size):
-        for ny in range(Ny):
-            for nx in range(Nx):
-                for by in range(By):
-                    for bx in range(Bx):
-                        iy = ny * Sy + by
-                        ix = nx * Sx + bx
-                        if ix < output.shape[-1] and iy < output.shape[-2]:
+        for iy in range(output.shape[-2]):
+            for ix in range(output.shape[-1]):
+                ry = iy % blk_strides[-2]
+                rx = ix % blk_strides[-1]
+                for by in range(ry, blk_shape[-2], blk_strides[-2]):
+                    for bx in range(rx, blk_shape[-1], blk_strides[-1]):
+                        ny = (iy - by) // blk_strides[-2]
+                        nx = (ix - bx) // blk_strides[-1]
+                        if nx >= 0 and nx < num_blks[-1] \
+                           and ny >= 0 and ny < num_blks[-2]:
                             output[b, iy, ix] += input[b, ny, nx, by, bx]
 
 
 @nb.jit(nopython=True, cache=True)  # pragma: no cover
-def _blocks_to_array3(output, input, batch_size, Bx, By, Bz, Sx, Sy, Sz,
-                      Nx, Ny, Nz):
+def _blocks_to_array3(output, input, batch_size,
+                      blk_shape, blk_strides, num_blks):
     for b in range(batch_size):
-        for nz in range(Nz):
-            for ny in range(Ny):
-                for nx in range(Nx):
-                    for bz in range(Bz):
-                        for by in range(By):
-                            for bx in range(Bx):
-                                iz = nz * Sz + bz
-                                iy = ny * Sy + by
-                                ix = nx * Sx + bx
-                                if (ix < output.shape[-1]
-                                    and iy < output.shape[-2]
-                                    and iz < output.shape[-3]):
+        for iz in range(output.shape[-3]):
+            for iy in range(output.shape[-2]):
+                for ix in range(output.shape[-1]):
+                    rz = iz % blk_strides[-3]
+                    ry = iy % blk_strides[-2]
+                    rx = ix % blk_strides[-1]
+                    for bz in range(rz, blk_shape[-3], blk_strides[-3]):
+                        for by in range(ry, blk_shape[-2], blk_strides[-2]):
+                            for bx in range(rx, blk_shape[-1],
+                                            blk_strides[-1]):
+                                nz = (iz - bz) // blk_strides[-3]
+                                ny = (iy - by) // blk_strides[-2]
+                                nx = (ix - bx) // blk_strides[-1]
+                                if nx >= 0 and nx < num_blks[-1] \
+                                   and ny >= 0 and ny < num_blks[-2] \
+                                   and nz >= 0 and nz < num_blks[-3]:
                                     output[b, iz, iy, ix] += input[b, nz,
                                                                    ny, nx,
                                                                    bz, by, bx]
 
 
-@nb.jit(nopython=True, cache=True)  # pragma: no cover
-def _blocks_to_array4(output, input, batch_size, Bx, By, Bz, Bt,
-                      Sx, Sy, Sz, St, Nx, Ny, Nz, Nt):
-    for b in range(batch_size):
-        for nt in range(Nt):
-            for nz in range(Nz):
-                for ny in range(Ny):
-                    for nx in range(Nx):
-                        for bt in range(Bt):
-                            for bz in range(Bz):
-                                for by in range(By):
-                                    for bx in range(Bx):
-                                        it = nt * St + bt
-                                        iz = nz * Sz + bz
-                                        iy = ny * Sy + by
-                                        ix = nx * Sx + bx
-                                        if (ix < output.shape[-1]
-                                            and iy < output.shape[-2]
-                                            and iz < output.shape[-3]
-                                            and it < output.shape[-4]):
-                                            output[b, it,
-                                                   iz,
-                                                   iy,
-                                                   ix] += input[b, nt,
-                                                                nz,
-                                                                ny,
-                                                                nx,
-                                                                bt,
-                                                                bz,
-                                                                by,
-                                                                bx]
+if config.numba_cuda_enabled:
+    import numba.cuda as nbc
 
+    @nbc.jit()  # pragma: no cover
+    def _array_to_blocks1_cuda(output, input, batch_size,
+                               blk_shape, blk_strides, num_blks):
+        i = nbc.grid(1)
+        b = i // num_blks[-1]
+        i -= b * num_blks[-1]
+        nx = i
 
-if config.cupy_enabled:  # pragma: no cover
-    import cupy as cp
+        if b < batch_size and nx < num_blks[-1]:
+            for bx in range(blk_shape[-1]):
+                ix = nx * blk_strides[-1] + bx
+                if ix < input.shape[-1]:
+                    output[b, nx, bx] = input[b, ix]
 
-    _array_to_blocks1_cuda = cp.ElementwiseKernel(
-        'raw T input, int32 batch_size, int32 Bx, int32 Sx, int32 Nx',
-        'raw T output',
-        """
-        const int ndim = input.ndim;
+    @nbc.jit()  # pragma: no cover
+    def _array_to_blocks2_cuda(output, input, batch_size,
+                               blk_shape, blk_strides, num_blks):
+        i = nbc.grid(1)
+        b = i // num_blks[-1] // num_blks[-2]
+        i -= b * num_blks[-1] * num_blks[-2]
+        ny = i // num_blks[-1]
+        i -= ny * num_blks[-1]
+        nx = i
 
-        int b = i / Bx / Nx;
-        i -= b * Bx * Nx;
-        int nx = i / Bx;
-        i -= nx * Bx;
-        int bx = i;
+        if b < batch_size and nx < num_blks[-1] \
+           and ny < num_blks[-2]:
+            for by in range(blk_shape[-2]):
+                for bx in range(blk_shape[-1]):
+                    iy = ny * blk_strides[-2] + by
+                    ix = nx * blk_strides[-1] + bx
+                    if ix < input.shape[-1] and iy < input.shape[-2]:
+                        output[b, ny, nx, by, bx] = input[b, iy, ix]
 
-        int ix = nx * Sx + bx;
-        if (ix < input.shape()[ndim - 1]) {
-            int input_idx[] = {b, ix};
-            int output_idx[] = {b, nx, bx};
-            output[output_idx] = input[input_idx];
-        }
-        """,
-        name='_array_to_blocks1_cuda')
+    @nbc.jit()  # pragma: no cover
+    def _array_to_blocks3_cuda(output, input, batch_size,
+                               blk_shape, blk_strides, num_blks):
+        i = nbc.grid(1)
+        b = i // num_blks[-1] // num_blks[-2] // num_blks[-3]
+        i -= b * num_blks[-1] * num_blks[-2] * num_blks[-3]
+        nz = i // num_blks[-1] // num_blks[-2]
+        i -= nz * num_blks[-1] * num_blks[-2]
+        ny = i // num_blks[-1]
+        i -= ny * num_blks[-1]
+        nx = i
 
-    _array_to_blocks2_cuda = cp.ElementwiseKernel(
-        'raw T input, int32 batch_size, int32 Bx, int32 By, '
-        'int32 Sx, int32 Sy, int32 Nx, int32 Ny',
-        'raw T output',
-        """
-        const int ndim = input.ndim;
+        if b < batch_size and nx < num_blks[-1] \
+           and ny < num_blks[-2] \
+           and nz < num_blks[-3]:
+            for bz in range(blk_shape[-3]):
+                for by in range(blk_shape[-2]):
+                    for bx in range(blk_shape[-1]):
+                        iz = nz * blk_strides[-3] + bz
+                        iy = ny * blk_strides[-2] + by
+                        ix = nx * blk_strides[-1] + bx
+                        if (ix < input.shape[-1] and
+                            iy < input.shape[-2] and
+                            iz < input.shape[-3]):
+                            output[b, nz, ny, nx, bz, by,
+                                   bx] = input[b, iz, iy, ix]
 
-        int b = i / Bx / By / Nx / Ny;
-        i -= b * Bx * By * Nx * Ny;
-        int ny = i / Bx / By / Nx;
-        i -= ny * Bx * By * Nx;
-        int nx = i / Bx / By;
-        i -= nx * Bx * By;
-        int by = i / Bx;
-        i -= by * Bx;
-        int bx = i;
+    @nbc.jit()  # pragma: no cover
+    def _blocks_to_array1_cuda(output, input, batch_size,
+                               blk_shape, blk_strides, num_blks):
+        i = nbc.grid(1)
+        b = i // output.shape[-1]
+        i -= b * output.shape[-1]
+        ix = i
 
-        int iy = ny * Sy + by;
-        int ix = nx * Sx + bx;
-        if (ix < input.shape()[ndim - 1] && iy < input.shape()[ndim - 2]) {
-            int input_idx[] = {b, iy, ix};
-            int output_idx[] = {b, ny, nx, by, bx};
-            output[output_idx] = input[input_idx];
-        }
-        """,
-        name='_array_to_blocks2_cuda')
+        if b < batch_size and ix < output.shape[-1]:
+            rx = ix % blk_strides[-1]
+            for bx in range(rx, blk_shape[-1], blk_strides[-1]):
+                nx = (ix - bx) // blk_strides[-1]
+                if nx >= 0 and nx < num_blks[-1]:
+                    output[b, ix] += input[b, nx, bx]
 
-    _array_to_blocks3_cuda = cp.ElementwiseKernel(
-        'raw T input, int32 batch_size, int32 Bx, int32 By, int32 Bz, '
-        'int32 Sx, int32 Sy, int32 Sz, int32 Nx, int32 Ny, int32 Nz',
-        'raw T output',
-        """
-        const int ndim = input.ndim;
+    @nbc.jit()  # pragma: no cover
+    def _blocks_to_array2_cuda(output, input, batch_size,
+                               blk_shape, blk_strides, num_blks):
+        i = nbc.grid(1)
+        b = i // output.shape[-1] // output.shape[-2]
+        i -= b * output.shape[-1] * output.shape[-2]
+        iy = i // output.shape[-1]
+        i -= iy * output.shape[-1]
+        ix = i
 
-        int b = i / Bx / By / Bz / Nx / Ny / Nz;
-        i -= b * Bx * By * Bz * Nx * Ny * Nz;
-        int nz = i / Bx / By / Bz / Nx / Ny;
-        i -= nz * Bx * By * Bz * Nx * Ny;
-        int ny = i / Bx / By / Bz / Nx;
-        i -= ny * Bx * By * Bz * Nx;
-        int nx = i / Bx / By / Bz;
-        i -= nx * Bx * By * Bz;
-        int bz = i / Bx / By;
-        i -= bz * Bx * By;
-        int by = i / Bx;
-        i -= by * Bx;
-        int bx = i;
+        if b < batch_size and ix < output.shape[-1] and iy < output.shape[-2]:
+            ry = iy % blk_strides[-2]
+            rx = ix % blk_strides[-1]
+            for by in range(ry, blk_shape[-2], blk_strides[-2]):
+                for bx in range(rx, blk_shape[-1], blk_strides[-1]):
+                    ny = (iy - by) // blk_strides[-2]
+                    nx = (ix - bx) // blk_strides[-1]
+                    if nx >= 0 and nx < num_blks[-1] \
+                       and ny >= 0 and ny < num_blks[-2]:
+                        output[b, iy, ix] += input[b, ny, nx, by, bx]
 
-        int iz = nz * Sz + bz;
-        int iy = ny * Sy + by;
-        int ix = nx * Sx + bx;
-        if (ix < input.shape()[ndim - 1] && iy < input.shape()[ndim - 2]
-            && iz < input.shape()[ndim - 3]) {
-            int input_idx[] = {b, iz, iy, ix};
-            int output_idx[] = {b, nz, ny, nx, bz, by, bx};
-            output[output_idx] = input[input_idx];
-        }
-        """,
-        name='_array_to_blocks3_cuda')
+    @nbc.jit()  # pragma: no cover
+    def _blocks_to_array3_cuda(output, input, batch_size,
+                               blk_shape, blk_strides, num_blks):
+        i = nbc.grid(1)
+        b = i // output.shape[-1] // output.shape[-2] // output.shape[-3]
+        i -= b * output.shape[-1] * output.shape[-2] * output.shape[-3]
+        iz = i // output.shape[-1] // output.shape[-2]
+        i -= iz * output.shape[-1] * output.shape[-2]
+        iy = i // output.shape[-1]
+        i -= iy * output.shape[-1]
+        ix = i
 
-    _array_to_blocks4_cuda = cp.ElementwiseKernel(
-        'raw T input, int32 batch_size, '
-        'int32 Bx, int32 By, int32 Bz, int32 Bt, '
-        'int32 Sx, int32 Sy, int32 Sz, int32 St, '
-        'int32 Nx, int32 Ny, int32 Nz, int32 Nt',
-        'raw T output',
-        """
-        const int ndim = input.ndim;
-
-        int b = i / Bx / By / Bz / Bt / Nx / Ny / Nz / Nt;
-        i -= b * Bx * By * Bz * Bt * Nx * Ny * Nz * Nt;
-        int nt = i / Bx / By / Bz / Bt / Nx / Ny / Nz;
-        i -= nt * Bx * By * Bz * Bt * Nx * Ny * Nz;
-        int nz = i / Bx / By / Bz / Bt / Nx / Ny;
-        i -= nz * Bx * By * Bz * Bt * Nx * Ny;
-        int ny = i / Bx / By / Bz / Bt / Nx;
-        i -= ny * Bx * By * Bz * Bt * Nx;
-        int nx = i / Bx / By / Bz / Bt;
-        i -= nx * Bx * By * Bz * Bt;
-        int bt = i / Bx / By / Bz;
-        i -= bt * Bx * By * Bz;
-        int bz = i / Bx / By;
-        i -= bz * Bx * By;
-        int by = i / Bx;
-        i -= by * Bx;
-        int bx = i;
-
-        int it = nt * St + bt;
-        int iz = nz * Sz + bz;
-        int iy = ny * Sy + by;
-        int ix = nx * Sx + bx;
-        if (ix < input.shape()[ndim - 1] && iy < input.shape()[ndim - 2]
-            && iz < input.shape()[ndim - 3] && it < input.shape()[ndim - 4]) {
-            int input_idx[] = {b, it, iz, iy, ix};
-            int output_idx[] = {b, nt, nz, ny, nx, bt, bz, by, bx};
-            output[output_idx] = input[input_idx];
-        }
-        """,
-        name='_array_to_blocks4_cuda')
-
-    _blocks_to_array1_cuda = cp.ElementwiseKernel(
-        'raw T input, int32 batch_size, int32 Bx, int32 Sx, int32 Nx',
-        'raw T output',
-        """
-        const int ndim = output.ndim;
-
-        int b = i / Bx / Nx;
-        i -= b * Bx * Nx;
-        int nx = i / Bx;
-        i -= nx * Bx;
-        int bx = i;
-
-        int ix = nx * Sx + bx;
-        if (ix < output.shape()[ndim - 1]) {
-            int input_idx[] = {b, nx, bx};
-            int output_idx[] = {b, ix};
-            atomicAdd(&output[output_idx], input[input_idx]);
-        }
-        """,
-        name='_blocks_to_array1_cuda')
-
-    _blocks_to_array1_cuda_complex = cp.ElementwiseKernel(
-        'raw T input, int32 batch_size, int32 Bx, int32 Sx, int32 Nx',
-        'raw T output',
-        """
-        const int ndim = output.ndim;
-
-        int b = i / Bx / Nx;
-        i -= b * Bx * Nx;
-        int nx = i / Bx;
-        i -= nx * Bx;
-        int bx = i;
-
-        int ix = nx * Sx + bx;
-        if (ix < output.shape()[ndim - 1]) {
-            int input_idx[] = {b, nx, bx};
-            int output_idx[] = {b, ix};
-            atomicAdd(reinterpret_cast<T::value_type*>(&(output[output_idx])),
-                input[input_idx].real());
-            atomicAdd(
-                reinterpret_cast<T::value_type*>(&(output[output_idx])) + 1,
-                input[input_idx].imag());
-        }
-        """,
-        name='_blocks_to_array1_cuda_complex')
-
-    _blocks_to_array2_cuda = cp.ElementwiseKernel(
-        'raw T input, int32 batch_size, '
-        'int32 Bx, int32 By, int32 Sx, int32 Sy, '
-        'int32 Nx, int32 Ny',
-        'raw T output',
-        """
-        const int ndim = output.ndim;
-
-        int b = i / Bx / By / Nx / Ny;
-        i -= b * Bx * By * Nx * Ny;
-        int ny = i / Bx / By / Nx;
-        i -= ny * Bx * By * Nx;
-        int nx = i / Bx / By;
-        i -= nx * Bx * By;
-        int by = i / Bx;
-        i -= by * Bx;
-        int bx = i;
-
-        int iy = ny * Sy + by;
-        int ix = nx * Sx + bx;
-        if (ix < output.shape()[ndim - 1] && iy < output.shape()[ndim - 2]) {
-            int input_idx[] = {b, ny, nx, by, bx};
-            int output_idx[] = {b, iy, ix};
-            atomicAdd(&output[output_idx], input[input_idx]);
-        }
-        """,
-        name='_blocks_to_array2_cuda')
-
-    _blocks_to_array2_cuda_complex = cp.ElementwiseKernel(
-        'raw T input, int32 batch_size, '
-        'int32 Bx, int32 By, int32 Sx, int32 Sy, '
-        'int32 Nx, int32 Ny',
-        'raw T output',
-        """
-        const int ndim = output.ndim;
-
-        int b = i / Bx / By / Nx / Ny;
-        i -= b * Bx * By * Nx * Ny;
-        int ny = i / Bx / By / Nx;
-        i -= ny * Bx * By * Nx;
-        int nx = i / Bx / By;
-        i -= nx * Bx * By;
-        int by = i / Bx;
-        i -= by * Bx;
-        int bx = i;
-
-        int iy = ny * Sy + by;
-        int ix = nx * Sx + bx;
-        if (ix < output.shape()[ndim - 1] && iy < output.shape()[ndim - 2]) {
-            int input_idx[] = {b, ny, nx, by, bx};
-            int output_idx[] = {b, iy, ix};
-            atomicAdd(reinterpret_cast<T::value_type*>(&(output[output_idx])),
-                input[input_idx].real());
-            atomicAdd(
-                reinterpret_cast<T::value_type*>(&(output[output_idx])) + 1,
-                input[input_idx].imag());
-        }
-        """,
-        name='_blocks_to_array2_cuda_complex')
-
-    _blocks_to_array3_cuda = cp.ElementwiseKernel(
-        'raw T input, int32 batch_size, int32 Bx, int32 By, int32 Bz, '
-        'int32 Sx, int32 Sy, int32 Sz, int32 Nx, int32 Ny, int32 Nz',
-        'raw T output',
-        """
-        const int ndim = output.ndim;
-
-        int b = i / Bx / By / Bz / Nx / Ny / Nz;
-        i -= b * Bx * By * Bz * Nx * Ny * Nz;
-        int nz = i / Bx / By / Bz / Nx / Ny;
-        i -= nz * Bx * By * Bz * Nx * Ny;
-        int ny = i / Bx / By / Bz / Nx;
-        i -= ny * Bx * By * Bz * Nx;
-        int nx = i / Bx / By / Bz;
-        i -= nx * Bx * By * Bz;
-        int bz = i / Bx / By;
-        i -= bz * Bx * By;
-        int by = i / Bx;
-        i -= by * Bx;
-        int bx = i;
-
-        int iz = nz * Sz + bz;
-        int iy = ny * Sy + by;
-        int ix = nx * Sx + bx;
-        if (ix < output.shape()[ndim - 1] &&
-            iy < output.shape()[ndim - 2] &&
-            iz < output.shape()[ndim - 3]) {
-            int input_idx[] = {b, nz, ny, nx, bz, by, bx};
-            int output_idx[] = {b, iz, iy, ix};
-            atomicAdd(&output[output_idx], input[input_idx]);
-        }
-        """,
-        name='_blocks_to_array3_cuda')
-
-    _blocks_to_array3_cuda_complex = cp.ElementwiseKernel(
-        'raw T input, int32 batch_size, int32 Bx, int32 By, int32 Bz, '
-        'int32 Sx, int32 Sy, int32 Sz, int32 Nx, int32 Ny, int32 Nz',
-        'raw T output',
-        """
-        const int ndim = output.ndim;
-
-        int b = i / Bx / By / Bz / Nx / Ny / Nz;
-        i -= b * Bx * By * Bz * Nx * Ny * Nz;
-        int nz = i / Bx / By / Bz / Nx / Ny;
-        i -= nz * Bx * By * Bz * Nx * Ny;
-        int ny = i / Bx / By / Bz / Nx;
-        i -= ny * Bx * By * Bz * Nx;
-        int nx = i / Bx / By / Bz;
-        i -= nx * Bx * By * Bz;
-        int bz = i / Bx / By;
-        i -= bz * Bx * By;
-        int by = i / Bx;
-        i -= by * Bx;
-        int bx = i;
-
-        int iz = nz * Sz + bz;
-        int iy = ny * Sy + by;
-        int ix = nx * Sx + bx;
-        if (ix < output.shape()[ndim - 1] &&
-            iy < output.shape()[ndim - 2] &&
-            iz < output.shape()[ndim - 3]) {
-            int input_idx[] = {b, nz, ny, nx, bz, by, bx};
-            int output_idx[] = {b, iz, iy, ix};
-            atomicAdd(reinterpret_cast<T::value_type*>(&(output[output_idx])),
-                input[input_idx].real());
-            atomicAdd(reinterpret_cast<T::value_type*>(
-                &(output[output_idx])) + 1, input[input_idx].imag());
-        }
-        """,
-        name='_blocks_to_array3_cuda_complex')
-
-    _blocks_to_array4_cuda = cp.ElementwiseKernel(
-        'raw T input, int32 batch_size, '
-        'int32 Bx, int32 By, int32 Bz, int32 Bt, '
-        'int32 Sx, int32 Sy, int32 Sz, int32 St, '
-        'int32 Nx, int32 Ny, int32 Nz, int32 Nt',
-        'raw T output',
-        """
-        const int ndim = output.ndim;
-        int b = i / Bx / By / Bz / Bt / Nx / Ny / Nz / Nt;
-        i -= b * Bx * By * Bz * Bt * Nx * Ny * Nz * Nt;
-        int nt = i / Bx / By / Bz / Bt / Nx / Ny / Nz;
-        i -= nt * Bx * By * Bz * Bt * Nx * Ny * Nz;
-        int nz = i / Bx / By / Bz / Bt / Nx / Ny;
-        i -= nz * Bx * By * Bz * Bt * Nx * Ny;
-        int ny = i / Bx / By / Bz / Bt / Nx;
-        i -= ny * Bx * By * Bz * Bt * Nx;
-        int nx = i / Bx / By / Bz / Bt;
-        i -= nx * Bx * By * Bz * Bt;
-        int bt = i / Bx / By / Bz;
-        i -= bt * Bx * By * Bz;
-        int bz = i / Bx / By;
-        i -= bz * Bx * By;
-        int by = i / Bx;
-        i -= by * Bx;
-        int bx = i;
-
-        int it = nt * St + bt;
-        int iz = nz * Sz + bz;
-        int iy = ny * Sy + by;
-        int ix = nx * Sx + bx;
-
-        if (ix < output.shape()[ndim - 1] &&
-            iy < output.shape()[ndim - 2] &&
-            iz < output.shape()[ndim - 3] &&
-            it < output.shape()[ndim - 4]) {
-            int input_idx[] = {b, nt, nz, ny, nx, bt, bz, by, bx};
-            int output_idx[] = {b, it, iz, iy, ix};
-            atomicAdd(&output[output_idx], input[input_idx]);
-        }
-        """,
-        name='_blocks_to_array4_cuda')
-
-    _blocks_to_array4_cuda_complex = cp.ElementwiseKernel(
-        'raw T input, int32 batch_size, '
-        'int32 Bx, int32 By, int32 Bz, int32 Bt, '
-        'int32 Sx, int32 Sy, int32 Sz, int32 St, '
-        'int32 Nx, int32 Ny, int32 Nz, int32 Nt',
-        'raw T output',
-        """
-        const int ndim = output.ndim;
-        int b = i / Bx / By / Bz / Bt / Nx / Ny / Nz / Nt;
-        i -= b * Bx * By * Bz * Bt * Nx * Ny * Nz * Nt;
-        int nt = i / Bx / By / Bz / Bt / Nx / Ny / Nz;
-        i -= nt * Bx * By * Bz * Bt * Nx * Ny * Nz;
-        int nz = i / Bx / By / Bz / Bt / Nx / Ny;
-        i -= nz * Bx * By * Bz * Bt * Nx * Ny;
-        int ny = i / Bx / By / Bz / Bt / Nx;
-        i -= ny * Bx * By * Bz * Bt * Nx;
-        int nx = i / Bx / By / Bz / Bt;
-        i -= nx * Bx * By * Bz * Bt;
-        int bt = i / Bx / By / Bz;
-        i -= bt * Bx * By * Bz;
-        int bz = i / Bx / By;
-        i -= bz * Bx * By;
-        int by = i / Bx;
-        i -= by * Bx;
-        int bx = i;
-
-        int it = nt * St + bt;
-        int iz = nz * Sz + bz;
-        int iy = ny * Sy + by;
-        int ix = nx * Sx + bx;
-
-        if (ix < output.shape()[ndim - 1] &&
-            iy < output.shape()[ndim - 2] &&
-            iz < output.shape()[ndim - 3] &&
-            it < output.shape()[ndim - 4]) {
-            int input_idx[] = {b, nt, nz, ny, nx, bt, bz, by, bx};
-            int output_idx[] = {b, it, iz, iy, ix};
-            atomicAdd(reinterpret_cast<T::value_type*>(&(output[output_idx])),
-                input[input_idx].real());
-            atomicAdd(reinterpret_cast<T::value_type*>(
-                &(output[output_idx])) + 1, input[input_idx].imag());
-        }
-        """,
-        name='_blocks_to_array4_cuda_complex')
+        if b < batch_size and ix < output.shape[-1] and iy < output.shape[-2] \
+           and iz < output.shape[-3]:
+            rz = iz % blk_strides[-3]
+            ry = iy % blk_strides[-2]
+            rx = ix % blk_strides[-1]
+            for bz in range(rz, blk_shape[-3], blk_strides[-3]):
+                for by in range(ry, blk_shape[-2], blk_strides[-2]):
+                    for bx in range(rx, blk_shape[-1],
+                                    blk_strides[-1]):
+                        nz = (iz - bz) // blk_strides[-3]
+                        ny = (iy - by) // blk_strides[-2]
+                        nx = (ix - bx) // blk_strides[-1]
+                        if nx >= 0 and nx < num_blks[-1] \
+                           and ny >= 0 and ny < num_blks[-2] \
+                           and nz >= 0 and nz < num_blks[-3]:
+                            output[b, iz, iy, ix] += input[b, nz,
+                                                           ny, nx,
+                                                           bz, by, bx]
